@@ -57,14 +57,32 @@ export interface SymbolItem {
   metadata_json?: Record<string, any>;
 }
 
+export interface MethodItem {
+  name: string;
+  signature: string;
+  visibility: 'public' | 'private' | 'protected';
+  isAsync?: boolean;
+  returnType?: string;
+  startLine: number;
+  endLine: number;
+}
+
 export interface GraphNodeData {
   label: string;
   kind: 'module' | 'class' | 'function' | 'database';
+  layer: 'ingress' | 'domain' | 'analysis' | 'storage';
   path: string;
   language: string;
   symbolsCount: number;
+  loc?: number;
+  complexity?: 'Low' | 'Medium' | 'High';
+  blastRadius?: 'Critical' | 'Caution' | 'Minimal';
   status: string;
   badge: string;
+  description?: string;
+  methods?: MethodItem[];
+  codeSnippet?: string;
+  [key: string]: unknown;
 }
 
 export interface ImpactAnalysis {
