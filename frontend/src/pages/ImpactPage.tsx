@@ -17,7 +17,12 @@ export const ImpactPage: React.FC = () => {
   const [impactData, setImpactData] = useState<ImpactAnalysis | null>(null);
 
   useEffect(() => {
-    api.getSymbols(id).then(setSymbols);
+    api.getSymbols(id).then((syms) => {
+      setSymbols(syms);
+      if (syms.length > 0) {
+        setSelectedSymbolId(syms[0].id);
+      }
+    });
   }, [id]);
 
   useEffect(() => {

@@ -21,7 +21,7 @@ export const ExplorerPage: React.FC = () => {
     api.getFiles(id).then((fileList) => {
       setFiles(fileList);
       if (fileList.length > 0) {
-        setSelectedPath(fileList[1]?.path || fileList[0].path);
+        setSelectedPath(fileList[0].path);
       }
     });
   }, [id]);

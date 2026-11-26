@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -9,6 +9,7 @@ import {
   addEdge,
   Connection,
   Edge,
+  Node,
   MarkerType,
   useReactFlow,
   ReactFlowProvider,
@@ -23,8 +24,10 @@ import {
   RotateCcw,
   ShieldCheck,
   Crosshair,
+  Loader2,
 } from 'lucide-react';
 import { GraphNodeData } from '../../types';
+import { api } from '../../services/api';
 
 const nodeTypes = {
   moduleNode: ModuleNode,
@@ -33,315 +36,116 @@ const nodeTypes = {
   databaseNode: DatabaseNode,
 };
 
-// Layout presets
 type LayoutMode = 'dag' | 'layers' | 'horizontal';
 
-// Base initial nodes
-const BASE_NODES = [
-  {
-    id: 'api-gateway',
-    type: 'moduleNode',
-    position: { x: 420, y: 40 },
-    data: {
-      label: 'API Gateway & Ingress Router',
-      kind: 'module',
-      layer: 'ingress',
-      path: 'src/api/router.ts',
-      language: 'TypeScript',
-      symbolsCount: 8,
-      loc: 128,
-      complexity: 'Low',
-      blastRadius: 'Critical',
-      status: 'stable',
-      badge: 'HTTP / WS Ingress',
-      description: 'Central API routing hub intercepting public requests, applying CORS, authentication middleware, and rate limiting.',
-      methods: [
-        { name: 'mountRoutes', signature: 'mountRoutes(app: Express): void', visibility: 'public', startLine: 12, endLine: 35 },
-        { name: 'authMiddleware', signature: 'authMiddleware(req, res, next): Promise<void>', visibility: 'public', isAsync: true, startLine: 37, endLine: 52 },
-        { name: 'errorHandler', signature: 'errorHandler(err, req, res, next): void', visibility: 'public', startLine: 55, endLine: 74 },
-      ],
-      codeSnippet: "export const apiRouter = Router();\napiRouter.use('/auth', authRouter);\napiRouter.use('/repositories', repoRouter);\napiRouter.use('/graph', graphRouter);",
-    },
-  },
-  {
-    id: 'auth-service',
-    type: 'serviceNode',
-    position: { x: 140, y: 240 },
-    data: {
-      label: 'AuthService & JWT',
-      kind: 'class',
-      layer: 'domain',
-      path: 'src/services/auth.ts',
-      language: 'TypeScript',
-      symbolsCount: 12,
-      loc: 184,
-      complexity: 'Medium',
-      blastRadius: 'Critical',
-      status: 'security-critical',
-      badge: 'Domain Security',
-      description: 'Manages JWT verification, token revocation checking, public-key verification, and user claims extraction.',
-      methods: [
-        { name: 'validateToken', signature: 'async validateToken(token: string): Promise<UserClaims>', visibility: 'public', isAsync: true, startLine: 23, endLine: 46 },
-        { name: 'isTokenRevoked', signature: 'private async isTokenRevoked(jti: string): Promise<boolean>', visibility: 'private', isAsync: true, startLine: 48, endLine: 51 },
-        { name: 'generateSessionToken', signature: 'generateSessionToken(payload: SessionPayload): string', visibility: 'public', startLine: 54, endLine: 70 },
-      ],
-      codeSnippet: "export class AuthService {\n  async validateToken(token: string): Promise<UserClaims> {\n    return jwt.verify(token, this.publicKey);\n  }\n}",
-    },
-  },
-  {
-    id: 'repo-ingestor',
-    type: 'serviceNode',
-    position: { x: 420, y: 240 },
-    data: {
-      label: 'IngestionEngine',
-      kind: 'class',
-      layer: 'domain',
-      path: 'src/services/ingestion.py',
-      language: 'Python',
-      symbolsCount: 15,
-      loc: 210,
-      complexity: 'High',
-      blastRadius: 'Caution',
-      status: 'active',
-      badge: 'Safe Ingestion',
-      description: 'Sanitizes and safely extracts uploaded ZIP archives, checks for zip-slip traversal exploits, and scans repository files.',
-      methods: [
-        { name: 'process_zip_upload', signature: 'def process_zip_upload(zip_path: str, repo_id: str) -> dict', visibility: 'public', startLine: 14, endLine: 48 },
-        { name: 'scan_directory', signature: 'def scan_directory(root_dir: str, repo_id: str) -> tuple', visibility: 'public', startLine: 50, endLine: 88 },
-        { name: 'parse_github_url', signature: 'def parse_github_url(url: str) -> tuple', visibility: 'public', startLine: 90, endLine: 105 },
-      ],
-      codeSnippet: "class IngestionEngine:\n    def process_zip_upload(self, zip_path: str, repo_id: str) -> dict:\n        SecurityGuard.validate_zip(zip_path, target_dir)\n        return scan_directory(target_dir, repo_id)",
-    },
-  },
-  {
-    id: 'ai-agent',
-    type: 'serviceNode',
-    position: { x: 700, y: 240 },
-    data: {
-      label: 'GeminiContextEngine',
-      kind: 'class',
-      layer: 'domain',
-      path: 'src/services/gemini.py',
-      language: 'Python',
-      symbolsCount: 9,
-      loc: 165,
-      complexity: 'Medium',
-      blastRadius: 'Caution',
-      status: 'ai-ready',
-      badge: 'AI Grounding',
-      description: 'Connects to Google Gemini API via official Google Gen AI SDK. Budgets tokens and generates grounded citations.',
-      methods: [
-        { name: 'ask_codebase', signature: 'async def ask_codebase(repo_id: str, query: str) -> ChatQueryResponse', visibility: 'public', isAsync: true, startLine: 18, endLine: 58 },
-        { name: 'budget_context_tokens', signature: 'def budget_context_tokens(chunks: list, max_tokens=8000) -> str', visibility: 'private', startLine: 60, endLine: 75 },
-      ],
-      codeSnippet: "class GeminiContextEngine:\n    async def ask_codebase(self, repo_id: str, query: str):\n        response = client.models.generate_content(model=MODEL, contents=prompt)\n        return parse_grounded_response(response)",
-    },
-  },
-  {
-    id: 'ast-parser',
-    type: 'functionNode',
-    position: { x: 280, y: 440 },
-    data: {
-      label: 'TreeSitterParser',
-      kind: 'function',
-      layer: 'analysis',
-      path: 'src/parser/ast.py',
-      language: 'Python',
-      symbolsCount: 24,
-      loc: 195,
-      complexity: 'High',
-      blastRadius: 'Critical',
-      status: 'optimized',
-      badge: 'Grammar AST',
-      description: 'Multi-language grammar parsing engine extracting AST syntax trees, class definitions, function signatures, and calls.',
-      methods: [
-        { name: 'parse_source_code', signature: 'def parse_source_code(file_path: str, code: str, lang: str) -> list', visibility: 'public', startLine: 15, endLine: 35 },
-        { name: '_parse_python_ast', signature: 'def _parse_python_ast(file_path: str, code: str) -> list', visibility: 'private', startLine: 38, endLine: 65 },
-        { name: '_parse_js_ts', signature: 'def _parse_js_ts(file_path: str, code: str) -> list', visibility: 'private', startLine: 68, endLine: 110 },
-      ],
-      codeSnippet: "def parse_source_code(file_path: str, code: str, language: str):\n    tree = ast.parse(code)\n    for node in ast.walk(tree):\n        if isinstance(node, ast.ClassDef): ...",
-    },
-  },
-  {
-    id: 'graph-builder',
-    type: 'functionNode',
-    position: { x: 560, y: 440 },
-    data: {
-      label: 'GraphBuilderDAG',
-      kind: 'function',
-      layer: 'analysis',
-      path: 'src/graph/builder.py',
-      language: 'Python',
-      symbolsCount: 18,
-      loc: 140,
-      complexity: 'Medium',
-      blastRadius: 'Caution',
-      status: 'graph-core',
-      badge: 'DAG Topology',
-      description: 'Computes directed acyclic graphs, resolves symbol connections, identifies circular dependencies, and formats for React Flow.',
-      methods: [
-        { name: 'build_architecture_dag', signature: 'def build_architecture_dag(symbols: list, imports: list) -> GraphResponse', visibility: 'public', startLine: 10, endLine: 45 },
-        { name: 'detect_cycles', signature: 'def detect_cycles(edges: list) -> list', visibility: 'private', startLine: 48, endLine: 62 },
-      ],
-      codeSnippet: "def build_architecture_dag(symbols, imports):\n    nodes = create_graph_nodes(symbols)\n    edges = compute_directed_edges(imports)\n    return ArchitectureGraphResponse(nodes=nodes, edges=edges)",
-    },
-  },
-  {
-    id: 'postgres-db',
-    type: 'databaseNode',
-    position: { x: 220, y: 640 },
-    data: {
-      label: 'PostgreSQL + pgvector',
-      kind: 'database',
-      layer: 'storage',
-      path: 'src/database/schema.sql',
-      language: 'SQL',
-      symbolsCount: 6,
-      loc: 88,
-      complexity: 'Low',
-      blastRadius: 'Critical',
-      status: 'persisted',
-      badge: 'Relational Storage',
-      description: 'Stores indexed repositories, files, extracted AST symbols, dependency edges, and conversation histories.',
-      methods: [
-        { name: 'repositories_table', signature: 'CREATE TABLE repositories (id UUID PRIMARY KEY...)', visibility: 'public', startLine: 5, endLine: 20 },
-        { name: 'symbols_table', signature: 'CREATE TABLE symbols (id UUID PRIMARY KEY, name VARCHAR...)', visibility: 'public', startLine: 22, endLine: 45 },
-      ],
-      codeSnippet: "CREATE EXTENSION IF NOT EXISTS vector;\nCREATE TABLE symbols (\n  id UUID PRIMARY KEY,\n  name VARCHAR(255) NOT NULL,\n  file_path VARCHAR(1000) NOT NULL\n);",
-    },
-  },
-  {
-    id: 'vector-index',
-    type: 'databaseNode',
-    position: { x: 620, y: 640 },
-    data: {
-      label: 'CodeChunkVectorStore',
-      kind: 'database',
-      layer: 'storage',
-      path: 'src/vectors/store.py',
-      language: 'Python',
-      symbolsCount: 7,
-      loc: 145,
-      complexity: 'Medium',
-      blastRadius: 'Minimal',
-      status: 'vector-search',
-      badge: 'HNSW Embeddings',
-      description: 'High-dimensional embedding store with HNSW indexing for rapid cosine similarity retrieval of relevant code chunks.',
-      methods: [
-        { name: 'index_code_chunk', signature: 'async def index_code_chunk(chunk_id: str, vector: list): Promise<void>', visibility: 'public', startLine: 15, endLine: 35 },
-        { name: 'find_nearest_neighbors', signature: 'async def find_nearest_neighbors(query_vec: list, top_k=5) -> list', visibility: 'public', startLine: 38, endLine: 60 },
-      ],
-      codeSnippet: "class CodeChunkVectorStore:\n    async def find_nearest_neighbors(self, query_vec, top_k=5):\n        return await db.execute(select(Chunk).order_by(Chunk.embedding.cosine_distance(query_vec)).limit(top_k))",
-    },
-  },
-];
+function computeDynamicLayout(currentNodes: Node[], mode: LayoutMode): Node[] {
+  if (mode === 'horizontal') {
+    const layers = ['ingress', 'domain', 'analysis', 'storage'];
+    const buckets: Record<string, Node[]> = { ingress: [], domain: [], analysis: [], storage: [] };
+    currentNodes.forEach((n) => {
+      const layer = ((n.data as GraphNodeData)?.layer) || 'domain';
+      (buckets[layer] || buckets.domain).push(n);
+    });
 
-// Initial edges with relation types
-const BASE_EDGES: Edge[] = [
-  {
-    id: 'e1-2',
-    source: 'api-gateway',
-    target: 'auth-service',
-    sourceHandle: 'bottom',
-    targetHandle: 'top',
-    label: 'calls: validateToken',
-    data: { relationType: 'calls' },
-    animated: true,
-    style: { stroke: '#818cf8', strokeWidth: 2 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#818cf8' },
-  },
-  {
-    id: 'e1-3',
-    source: 'api-gateway',
-    target: 'repo-ingestor',
-    sourceHandle: 'bottom',
-    targetHandle: 'top',
-    label: 'calls: process_zip',
-    data: { relationType: 'calls' },
-    animated: true,
-    style: { stroke: '#818cf8', strokeWidth: 2 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#818cf8' },
-  },
-  {
-    id: 'e1-4',
-    source: 'api-gateway',
-    target: 'ai-agent',
-    sourceHandle: 'bottom',
-    targetHandle: 'top',
-    label: 'calls: ask_codebase',
-    data: { relationType: 'calls' },
-    style: { stroke: '#818cf8', strokeWidth: 1.5 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#818cf8' },
-  },
-  {
-    id: 'e3-5',
-    source: 'repo-ingestor',
-    target: 'ast-parser',
-    sourceHandle: 'bottom',
-    targetHandle: 'top',
-    label: 'depends_on: AST parser',
-    data: { relationType: 'depends_on' },
-    style: { stroke: '#10b981', strokeWidth: 1.5 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981' },
-  },
-  {
-    id: 'e5-6',
-    source: 'ast-parser',
-    target: 'graph-builder',
-    sourceHandle: 'right',
-    targetHandle: 'left',
-    label: 'streams symbols',
-    data: { relationType: 'depends_on' },
-    style: { stroke: '#10b981', strokeWidth: 1.5 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981' },
-  },
-  {
-    id: 'e6-7',
-    source: 'graph-builder',
-    target: 'postgres-db',
-    sourceHandle: 'bottom',
-    targetHandle: 'top',
-    label: 'imports: DB session',
-    data: { relationType: 'imports' },
-    style: { stroke: '#c084fc', strokeWidth: 1.5 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#c084fc' },
-  },
-  {
-    id: 'e4-8',
-    source: 'ai-agent',
-    target: 'vector-index',
-    sourceHandle: 'bottom',
-    targetHandle: 'top',
-    label: 'calls: similarity',
-    data: { relationType: 'calls' },
-    style: { stroke: '#818cf8', strokeWidth: 1.5 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#818cf8' },
-  },
-  {
-    id: 'e8-7',
-    source: 'vector-index',
-    target: 'postgres-db',
-    sourceHandle: 'left',
-    targetHandle: 'right',
-    label: 'persists embeddings',
-    data: { relationType: 'imports' },
-    style: { stroke: '#c084fc', strokeWidth: 1.5 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#c084fc' },
-  },
-];
+    const positioned: Node[] = [];
+    layers.forEach((layerName, colIdx) => {
+      const bucket = buckets[layerName];
+      const x = 60 + colIdx * 340;
+      const startY = Math.max(40, 260 - ((bucket.length - 1) * 180) / 2);
+      bucket.forEach((n, rowIdx) => {
+        positioned.push({
+          ...n,
+          position: { x, y: Math.round(startY + rowIdx * 200) },
+        });
+      });
+    });
+    return positioned;
+  }
+
+  // 'dag' or 'layers' top-down layout
+  const layers = ['ingress', 'domain', 'analysis', 'storage'];
+  const buckets: Record<string, Node[]> = { ingress: [], domain: [], analysis: [], storage: [] };
+  currentNodes.forEach((n) => {
+    const layer = ((n.data as GraphNodeData)?.layer) || 'domain';
+    (buckets[layer] || buckets.domain).push(n);
+  });
+
+  const yStep = mode === 'layers' ? 230 : 210;
+  const positioned: Node[] = [];
+  let rowIndex = 0;
+
+  layers.forEach((layerName) => {
+    const bucket = buckets[layerName];
+    if (bucket.length === 0) return;
+    const y = 40 + rowIndex * yStep;
+    const spacingX = 320;
+    const startX = Math.max(60, 480 - ((bucket.length - 1) * spacingX) / 2);
+    bucket.forEach((n, colIdx) => {
+      positioned.push({
+        ...n,
+        position: { x: Math.round(startX + colIdx * spacingX), y },
+      });
+    });
+    rowIndex++;
+  });
+
+  return positioned;
+}
 
 const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
   const reactFlow = useReactFlow();
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(BASE_NODES);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(BASE_EDGES);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [selectedNode, setSelectedNode] = useState<any | null>(null);
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [relationFilter, setRelationFilter] = useState<string>('all');
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('dag');
   const [isolateMode, setIsolateMode] = useState(false);
+
+  // Fetch real architecture graph for repoId
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setSelectedNode(null);
+    setIsolateMode(false);
+
+    api.getArchitectureGraph(repoId).then((graphData) => {
+      if (!active) return;
+      if (graphData && Array.isArray(graphData.nodes)) {
+        const mappedNodes: Node[] = graphData.nodes.map((n: any) => ({
+          id: n.id,
+          type: n.type || 'serviceNode',
+          position: n.position || { x: 100, y: 100 },
+          data: n.data || {},
+        }));
+
+        const mappedEdges: Edge[] = (graphData.edges || []).map((e: any) => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          label: e.label,
+          animated: Boolean(e.animated),
+          data: { relationType: e.relation_type || 'imports' },
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#818cf8' },
+        }));
+
+        setNodes(computeDynamicLayout(mappedNodes, 'dag'));
+        setEdges(mappedEdges);
+        setTimeout(() => {
+          reactFlow.fitView({ padding: 0.25, duration: 500 });
+        }, 80);
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [repoId, setNodes, setEdges, reactFlow]);
 
   // Compute connected nodes (upstream / downstream) for selectedNode
   const connectedNodeIds = useMemo(() => {
@@ -360,56 +164,7 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
   const applyLayout = useCallback(
     (mode: LayoutMode) => {
       setLayoutMode(mode);
-
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => {
-          let pos = { x: node.position.x, y: node.position.y };
-
-          if (mode === 'dag') {
-            // Hierarchical top-down
-            const dagPositions: Record<string, { x: number; y: number }> = {
-              'api-gateway': { x: 420, y: 40 },
-              'auth-service': { x: 140, y: 240 },
-              'repo-ingestor': { x: 420, y: 240 },
-              'ai-agent': { x: 700, y: 240 },
-              'ast-parser': { x: 280, y: 440 },
-              'graph-builder': { x: 560, y: 440 },
-              'postgres-db': { x: 220, y: 640 },
-              'vector-index': { x: 620, y: 640 },
-            };
-            if (dagPositions[node.id]) pos = dagPositions[node.id];
-          } else if (mode === 'layers') {
-            // Layer swimlanes
-            const layerPositions: Record<string, { x: number; y: number }> = {
-              'api-gateway': { x: 420, y: 50 },
-              'auth-service': { x: 100, y: 260 },
-              'repo-ingestor': { x: 420, y: 260 },
-              'ai-agent': { x: 740, y: 260 },
-              'ast-parser': { x: 260, y: 470 },
-              'graph-builder': { x: 580, y: 470 },
-              'postgres-db': { x: 200, y: 680 },
-              'vector-index': { x: 640, y: 680 },
-            };
-            if (layerPositions[node.id]) pos = layerPositions[node.id];
-          } else if (mode === 'horizontal') {
-            // Left to right stream
-            const horizPositions: Record<string, { x: number; y: number }> = {
-              'api-gateway': { x: 50, y: 220 },
-              'auth-service': { x: 340, y: 80 },
-              'repo-ingestor': { x: 340, y: 220 },
-              'ai-agent': { x: 340, y: 360 },
-              'ast-parser': { x: 630, y: 150 },
-              'graph-builder': { x: 630, y: 290 },
-              'postgres-db': { x: 920, y: 150 },
-              'vector-index': { x: 920, y: 330 },
-            };
-            if (horizPositions[node.id]) pos = horizPositions[node.id];
-          }
-
-          return { ...node, position: pos };
-        })
-      );
-
+      setNodes((currentNodes) => computeDynamicLayout(currentNodes, mode));
       setTimeout(() => {
         reactFlow.fitView({ padding: 0.25, duration: 600 });
       }, 50);
@@ -423,8 +178,8 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
     if (target) {
       setSelectedNode(target);
       reactFlow.setCenter(target.position.x + 120, target.position.y + 60, {
-        zoom: 1.3,
-        duration: 800,
+        zoom: 1.25,
+        duration: 700,
       });
     }
   };
@@ -434,7 +189,7 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
     [setEdges]
   );
 
-  const onNodeClick = useCallback((_: React.MouseEvent, node: any) => {
+  const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     setSelectedNode(node);
   }, []);
 
@@ -448,8 +203,8 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
       const nodeData = node.data as unknown as GraphNodeData;
       const matchesSearch =
         !searchQuery ||
-        nodeData.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        nodeData.path.toLowerCase().includes(searchQuery.toLowerCase());
+        (nodeData.label || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (nodeData.path || '').toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesKind =
         activeFilter === 'all' ||
@@ -494,10 +249,10 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
 
       if (selectedNode) {
         if (isOutbound) {
-          edgeColor = '#38bdf8'; // Cyan for downstream outgoing calls
+          edgeColor = '#38bdf8';
           strokeWidth = 2.5;
         } else if (isInbound) {
-          edgeColor = '#f59e0b'; // Amber for upstream callers
+          edgeColor = '#f59e0b';
           strokeWidth = 2.5;
         }
       }
@@ -505,7 +260,7 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
       return {
         ...edge,
         hidden: !matchesRelation,
-        animated: isOutbound || (edge.animated && !selectedNode),
+        animated: Boolean(isOutbound || (edge.animated && !selectedNode)),
         style: {
           stroke: edgeColor,
           strokeWidth,
@@ -541,10 +296,9 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
       {/* Top Floating Controls & Telemetry Toolbar */}
       <div className="absolute top-4 left-4 right-4 z-10 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
         {/* Left Toolbar */}
-        <div className="flex flex-wrap items-center gap-2.5 bg-charcoal-850/90 backdrop-blur-md border border-charcoal-750 px-3 py-2 rounded-xl shadow-panel pointer-events-auto">
-          {/* Search Input */}
+        <div className="flex flex-wrap items-center gap-2.5 glass-panel border border-charcoal-750 px-3 py-2 rounded-2xl shadow-panel pointer-events-auto">
           <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-cyan-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
@@ -554,8 +308,8 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
                 if (val.length >= 3) {
                   const found = nodes.find(
                     (n) =>
-                      (n.data as any).label.toLowerCase().includes(val.toLowerCase()) ||
-                      (n.data as any).path.toLowerCase().includes(val.toLowerCase())
+                      ((n.data as GraphNodeData).label || '').toLowerCase().includes(val.toLowerCase()) ||
+                      ((n.data as GraphNodeData).path || '').toLowerCase().includes(val.toLowerCase())
                   );
                   if (found) handleSearchSelect(found.id);
                 }
@@ -564,14 +318,14 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
                 if (e.key === 'Enter') {
                   const found = nodes.find(
                     (n) =>
-                      (n.data as any).label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                      (n.data as any).path.toLowerCase().includes(searchQuery.toLowerCase())
+                      ((n.data as GraphNodeData).label || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      ((n.data as GraphNodeData).path || '').toLowerCase().includes(searchQuery.toLowerCase())
                   );
                   if (found) handleSearchSelect(found.id);
                 }
               }}
               placeholder="Search symbol, path..."
-              className="pl-8 pr-3 py-1 bg-charcoal-900 border border-charcoal-750 rounded-lg text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 w-44 font-mono"
+              className="pl-8 pr-3 py-1 bg-charcoal-950/90 border border-charcoal-750 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 w-44 font-mono"
             />
           </div>
 
@@ -589,10 +343,10 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
               <button
                 key={f.id}
                 onClick={() => setActiveFilter(f.id)}
-                className={`px-2 py-1 rounded-md text-[11px] transition-colors ${
+                className={`px-2 py-1 rounded-lg text-[11px] transition-colors ${
                   activeFilter === f.id
-                    ? 'bg-indigo-600 text-white font-semibold'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-charcoal-750'
+                    ? 'bg-indigo-600 text-white font-semibold shadow-glow'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-charcoal-800'
                 }`}
               >
                 {f.label}
@@ -627,9 +381,8 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
         </div>
 
         {/* Right Toolbar: Layout Presets & Actions */}
-        <div className="flex items-center gap-2 bg-charcoal-850/90 backdrop-blur-md border border-charcoal-750 px-3 py-1.5 rounded-xl shadow-panel pointer-events-auto text-xs font-mono">
-          {/* Layout Mode Selector */}
-          <div className="flex items-center gap-1 bg-charcoal-900 p-1 rounded-lg border border-charcoal-750">
+        <div className="flex items-center gap-2 glass-panel border border-charcoal-750 px-3 py-1.5 rounded-2xl shadow-panel pointer-events-auto text-xs font-mono">
+          <div className="flex items-center gap-1 bg-charcoal-950 p-1 rounded-xl border border-charcoal-800">
             {[
               { id: 'dag', label: 'DAG' },
               { id: 'layers', label: 'Tiers' },
@@ -638,47 +391,42 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
               <button
                 key={m.id}
                 onClick={() => applyLayout(m.id as LayoutMode)}
-                className={`px-2 py-1 rounded text-[11px] transition-colors ${
+                className={`px-2.5 py-1 rounded-lg text-[11px] transition-colors ${
                   layoutMode === m.id
                     ? 'bg-indigo-600 text-white font-semibold'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title={`Switch layout to ${m.label}`}
               >
                 {m.label}
               </button>
             ))}
           </div>
 
-          {/* Isolate Subgraph Button */}
           {selectedNode && (
             <button
               onClick={() => setIsolateMode((prev) => !prev)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-colors ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-colors ${
                 isolateMode
-                  ? 'bg-amber-950/80 border-amber-800 text-amber-300'
-                  : 'bg-charcoal-800 border-charcoal-700 text-slate-300 hover:bg-charcoal-750'
+                  ? 'bg-amber-950/80 border-amber-500/40 text-amber-300'
+                  : 'bg-charcoal-900 border-charcoal-750 text-slate-300 hover:bg-charcoal-800'
               }`}
-              title="Isolate selected component and its direct dependency neighborhood"
             >
               <Crosshair className="w-3.5 h-3.5" />
               <span>{isolateMode ? 'Show Full' : 'Isolate'}</span>
             </button>
           )}
 
-          {/* Reset View */}
           <button
             onClick={() => reactFlow.fitView({ padding: 0.25, duration: 600 })}
-            className="p-1.5 rounded-lg bg-charcoal-900 border border-charcoal-750 text-slate-400 hover:text-white transition-colors"
+            className="p-1.5 rounded-xl bg-charcoal-900 border border-charcoal-750 text-slate-400 hover:text-white transition-colors"
             title="Reset Canvas View"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
 
-          {/* Export JSON */}
           <button
             onClick={handleExportJSON}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-charcoal-900 border border-charcoal-750 text-slate-300 hover:text-white hover:border-charcoal-600 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-charcoal-900 border border-charcoal-750 text-slate-300 hover:text-white hover:border-cyan-500/40 transition-colors"
             title="Export Graph JSON"
           >
             <Download className="w-3.5 h-3.5" />
@@ -688,18 +436,28 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
       </div>
 
       {/* Bottom Telemetry Bar */}
-      <div className="absolute bottom-4 left-4 z-10 flex items-center gap-3 bg-charcoal-850/90 backdrop-blur-md border border-charcoal-750 px-3.5 py-1.5 rounded-xl shadow-panel text-[11px] font-mono text-slate-400 pointer-events-auto">
+      <div className="absolute bottom-4 left-4 z-10 flex items-center gap-3 glass-panel border border-charcoal-750 px-3.5 py-1.5 rounded-xl shadow-panel text-[11px] font-mono text-slate-400 pointer-events-auto">
         <div className="flex items-center gap-1.5 text-emerald-400">
           <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Clean DAG (0 Cycles)</span>
+          <span>AST Graph Verified</span>
         </div>
         <div className="h-3 w-[1px] bg-charcoal-700" />
-        <span>{processedNodes.filter((n) => !n.hidden).length} Active Nodes</span>
+        <span>{processedNodes.filter((n) => !n.hidden).length} Nodes</span>
         <div className="h-3 w-[1px] bg-charcoal-700" />
         <span>{processedEdges.filter((e) => !e.hidden).length} Edges</span>
         <div className="h-3 w-[1px] bg-charcoal-700" />
-        <span className="text-indigo-400">Layout: {layoutMode.toUpperCase()}</span>
+        <span className="text-cyan-400">Layout: {layoutMode.toUpperCase()}</span>
       </div>
+
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="absolute inset-0 z-30 bg-charcoal-950/70 backdrop-blur-sm flex items-center justify-center">
+          <div className="flex items-center gap-3 px-5 py-3 rounded-2xl glass-panel border border-cyan-500/30 text-xs font-mono text-cyan-300 shadow-glow-cyan">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Synthesizing Architecture DAG for {repoId}...</span>
+          </div>
+        </div>
+      )}
 
       {/* Main React Flow Canvas */}
       <div className="flex-1 h-full">
@@ -717,16 +475,16 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
           minZoom={0.2}
           maxZoom={2.0}
         >
-          <Background color="#1b2030" gap={20} size={1} />
-          <Controls className="!bg-charcoal-850 !border-charcoal-750 !text-slate-300" />
+          <Background color="#1b2030" gap={22} size={1} />
+          <Controls />
           <MiniMap
             nodeColor={(n) => {
               if (n.type === 'serviceNode') return '#818cf8';
-              if (n.type === 'databaseNode') return '#10b981';
-              if (n.type === 'functionNode') return '#f59e0b';
-              return '#6366f1';
+              if (n.type === 'databaseNode') return '#34d399';
+              if (n.type === 'functionNode') return '#fbbf24';
+              return '#22d3ee';
             }}
-            maskColor="rgba(9, 10, 15, 0.75)"
+            maskColor="rgba(7, 8, 13, 0.75)"
           />
         </ReactFlow>
       </div>
@@ -735,6 +493,8 @@ const InnerArchitectureGraph: React.FC<{ repoId: string }> = ({ repoId }) => {
       {selectedNode && (
         <NodeDetailDrawer
           node={selectedNode}
+          allNodes={nodes}
+          allEdges={edges}
           onClose={() => setSelectedNode(null)}
           repoId={repoId}
         />

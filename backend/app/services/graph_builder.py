@@ -1,14 +1,203 @@
-from typing import List
+from typing import List, Dict, Any
 from app.schemas.graph import GraphNode, GraphEdge, RelationType, ArchitectureGraphResponse
+
 
 class GraphBuilderService:
     """
-    Transforms parsed symbols, modules, and file connections into
-    a DAG (Directed Acyclic Graph) formatted for React Flow.
+    Transforms real parsed files, AST symbols, and import relationships into
+    a layered Directed Acyclic Graph (DAG) formatted for React Flow.
     """
 
     @classmethod
+    def _classify_file(cls, path: str, file_symbols: List[Dict[str, Any]]) -> tuple[str, str, str]:
+        """Returns (node_type, layer, badge) based on real file path & symbols."""
+        p = path.lower()
+        if any(k in p for k in ("schema", "model", "database", "db.", "store", "vector", "prisma", "migration", ".sql")):
+            return "databaseNode", "storage", "Data & Models"
+        if any(k in p for k in ("router", "route", "api/", "controller", "endpoint", "gateway", "main.", "app.", "index.", "server.")):
+            return "moduleNode", "ingress", "Entry / Routing"
+        if any(k in p for k in ("parser", "ast", "graph", "analyzer", "engine", "worker", "util", "helper")):
+            return "functionNode", "analysis", "Core Logic"
+        if any(s.get("symbol_type") == "class" for s in file_symbols) or "service" in p:
+            return "serviceNode", "domain", "Service / Class"
+        return "functionNode", "domain", "Module"
+
+    @classmethod
+    def _resolve_import_target(cls, imp: str, all_files: List[Dict[str, Any]]) -> Dict[str, Any] | None:
+        """Matches an import string (e.g. 'app.core.config' or './auth') to an actual repository file."""
+        norm_imp = imp.replace(".", "/").lstrip("./")
+        if not norm_imp:
+            return None
+
+        # Exact or suffix match against file paths without extension
+        for f in all_files:
+            path_no_ext = f["path"].rsplit(".", 1)[0]
+            if path_no_ext == norm_imp or path_no_ext.endswith("/" + norm_imp) or path_no_ext.endswith(norm_imp):
+                return f
+            # Handle Python __init__.py or index.ts
+            if path_no_ext.endswith("/__init__") or path_no_ext.endswith("/index"):
+                pkg_dir = path_no_ext.rsplit("/", 1)[0]
+                if pkg_dir == norm_imp or pkg_dir.endswith("/" + norm_imp):
+                    return f
+        return None
+
+    @classmethod
+    def build_graph_from_repo(
+        cls,
+        repo_id: str,
+        files: List[Dict[str, Any]],
+        symbols: List[Dict[str, Any]],
+        imports_map: Dict[str, List[str]],
+        max_nodes: int = 16,
+    ) -> ArchitectureGraphResponse:
+        """
+        Dynamically builds a clean, layered React Flow architecture graph from
+        a repository's actual scanned files, AST symbols, and import edges.
+        """
+        # Filter to code files (exclude markdown/json/txt unless no code files exist)
+        code_files = [
+            f for f in files
+            if f.get("language") not in ("Other", "Markdown", "JSON", "YAML", "TOML")
+        ]
+        if not code_files:
+            code_files = files
+
+        # Score files by symbol count + import centrality so we surface the most architectural files
+        scores: Dict[str, int] = {}
+        for f in code_files:
+            p = f["path"]
+            score = f.get("symbols_count", 0) * 3 + len(imports_map.get(p, [])) * 2
+            if any(k in p.lower() for k in ("main", "app", "index", "router", "server", "service", "model")):
+                score += 10
+            scores[p] = score
+
+        top_files = sorted(code_files, key=lambda f: scores.get(f["path"], 0), reverse=True)[:max_nodes]
+        top_paths = {f["path"] for f in top_files}
+
+        # Group symbols by file_path
+        symbols_by_file: Dict[str, List[Dict[str, Any]]] = {}
+        for s in symbols:
+            symbols_by_file.setdefault(s["file_path"], []).append(s)
+
+        # Resolve real edges among top_files
+        edges: List[GraphEdge] = []
+        inbound_counts: Dict[str, int] = {}
+        seen_edges = set()
+
+        for src_file in top_files:
+            src_path = src_file["path"]
+            for imp in imports_map.get(src_path, []):
+                target_file = cls._resolve_import_target(imp, top_files)
+                if target_file and target_file["path"] != src_path:
+                    edge_key = (src_file["id"], target_file["id"])
+                    if edge_key not in seen_edges:
+                        seen_edges.add(edge_key)
+                        inbound_counts[target_file["id"]] = inbound_counts.get(target_file["id"], 0) + 1
+                        edges.append(
+                            GraphEdge(
+                                id=f"e-{src_file['id']}-{target_file['id']}",
+                                source=src_file["id"],
+                                target=target_file["id"],
+                                label=f"imports {imp.split('.')[-1].split('/')[-1]}",
+                                relation_type=RelationType.IMPORTS,
+                                animated=True,
+                            )
+                        )
+
+        # Group nodes by layer for clean non-overlapping coordinates
+        layer_buckets: Dict[str, List[Dict[str, Any]]] = {
+            "ingress": [],
+            "domain": [],
+            "analysis": [],
+            "storage": [],
+        }
+        file_classifications: Dict[str, tuple[str, str, str]] = {}
+        for f in top_files:
+            f_syms = symbols_by_file.get(f["path"], [])
+            node_type, layer, badge = cls._classify_file(f["path"], f_syms)
+            file_classifications[f["id"]] = (node_type, layer, badge)
+            layer_buckets[layer].append(f)
+
+        layer_y = {"ingress": 40.0, "domain": 250.0, "analysis": 460.0, "storage": 670.0}
+        nodes: List[GraphNode] = []
+        stats = {"total_nodes": 0, "total_edges": len(edges), "modules": 0, "classes": 0, "functions": 0, "databases": 0}
+
+        for layer_name, bucket in layer_buckets.items():
+            if not bucket:
+                continue
+            y = layer_y[layer_name]
+            spacing_x = 320.0
+            start_x = max(60.0, 480.0 - ((len(bucket) - 1) * spacing_x) / 2.0)
+
+            for idx, f in enumerate(bucket):
+                node_type, layer, badge = file_classifications[f["id"]]
+                f_syms = symbols_by_file.get(f["path"], [])
+                loc = f.get("line_count", 0)
+                sym_cnt = len(f_syms)
+                inbound = inbound_counts.get(f["id"], 0)
+
+                complexity = "High" if loc > 200 or sym_cnt > 12 else ("Medium" if loc > 80 or sym_cnt > 4 else "Low")
+                blast = "Critical" if inbound >= 3 else ("Caution" if inbound >= 1 else "Minimal")
+
+                methods_list = [
+                    {
+                        "name": s["name"],
+                        "signature": s.get("signature") or s["name"],
+                        "visibility": "private" if s["name"].startswith("_") else "public",
+                        "isAsync": "async" in (s.get("signature") or ""),
+                        "startLine": s["start_line"],
+                        "endLine": s["end_line"],
+                    }
+                    for s in f_syms[:10]
+                ]
+
+                content_lines = (f.get("content") or "").splitlines()[:8]
+                snippet = "\n".join(content_lines) if content_lines else f"// {f['path']}"
+
+                if node_type == "moduleNode":
+                    stats["modules"] += 1
+                elif node_type == "serviceNode":
+                    stats["classes"] += 1
+                elif node_type == "databaseNode":
+                    stats["databases"] += 1
+                else:
+                    stats["functions"] += 1
+
+                nodes.append(
+                    GraphNode(
+                        id=f["id"],
+                        type=node_type,
+                        position={"x": round(start_x + idx * spacing_x, 1), "y": y},
+                        data={
+                            "label": f["name"],
+                            "kind": "database" if node_type == "databaseNode" else ("module" if node_type == "moduleNode" else ("class" if node_type == "serviceNode" else "function")),
+                            "layer": layer,
+                            "path": f["path"],
+                            "language": f.get("language") or "Code",
+                            "symbolsCount": sym_cnt,
+                            "loc": loc,
+                            "complexity": complexity,
+                            "blastRadius": blast,
+                            "status": "indexed",
+                            "badge": badge,
+                            "description": f"{f['path']} ({f.get('language', 'Code')}, {loc} lines, {sym_cnt} extracted AST symbols).",
+                            "methods": methods_list,
+                            "codeSnippet": snippet,
+                        },
+                    )
+                )
+
+        stats["total_nodes"] = len(nodes)
+        return ArchitectureGraphResponse(
+            repository_id=repo_id,
+            nodes=nodes,
+            edges=edges,
+            stats=stats,
+        )
+
+    @classmethod
     def build_sample_architecture_graph(cls, repo_id: str) -> ArchitectureGraphResponse:
+        """Retained for sample repository fallback."""
         nodes: List[GraphNode] = [
             GraphNode(
                 id="api-gateway",
@@ -30,15 +219,14 @@ class GraphBuilderService:
                     "methods": [
                         {"name": "mountRoutes", "signature": "mountRoutes(app: Express): void", "visibility": "public", "startLine": 12, "endLine": 35},
                         {"name": "authMiddleware", "signature": "authMiddleware(req, res, next): Promise<void>", "visibility": "public", "isAsync": True, "startLine": 37, "endLine": 52},
-                        {"name": "errorHandler", "signature": "errorHandler(err, req, res, next): void", "visibility": "public", "startLine": 55, "endLine": 74}
                     ],
-                    "codeSnippet": "export const apiRouter = Router();\napiRouter.use('/auth', authRouter);\napiRouter.use('/repositories', repoRouter);\napiRouter.use('/graph', graphRouter);"
+                    "codeSnippet": "export const apiRouter = Router();\napiRouter.use('/auth', authRouter);\napiRouter.use('/repositories', repoRouter);"
                 }
             ),
             GraphNode(
                 id="auth-service",
                 type="serviceNode",
-                position={"x": 120.0, "y": 240.0},
+                position={"x": 140.0, "y": 240.0},
                 data={
                     "label": "AuthService & JWT",
                     "kind": "class",
@@ -51,11 +239,10 @@ class GraphBuilderService:
                     "blastRadius": "Critical",
                     "status": "security-critical",
                     "badge": "Domain Security",
-                    "description": "Manages JWT verification, token revocation checking, public-key verification, and user claims extraction.",
+                    "description": "Manages JWT verification, token revocation checking, and user claims extraction.",
                     "methods": [
                         {"name": "validateToken", "signature": "async validateToken(token: string): Promise<UserClaims>", "visibility": "public", "isAsync": True, "startLine": 23, "endLine": 46},
                         {"name": "isTokenRevoked", "signature": "private async isTokenRevoked(jti: string): Promise<boolean>", "visibility": "private", "isAsync": True, "startLine": 48, "endLine": 51},
-                        {"name": "generateSessionToken", "signature": "generateSessionToken(payload: SessionPayload): string", "visibility": "public", "startLine": 54, "endLine": 70}
                     ],
                     "codeSnippet": "export class AuthService {\n  async validateToken(token: string): Promise<UserClaims> {\n    return jwt.verify(token, this.publicKey);\n  }\n}"
                 }
@@ -76,92 +263,17 @@ class GraphBuilderService:
                     "blastRadius": "Caution",
                     "status": "active",
                     "badge": "Safe Ingestion",
-                    "description": "Sanitizes and safely extracts uploaded ZIP archives, checks for zip-slip traversal exploits, and scans repository files.",
+                    "description": "Sanitizes and safely extracts uploaded ZIP archives and scans repository files.",
                     "methods": [
                         {"name": "process_zip_upload", "signature": "def process_zip_upload(zip_path: str, repo_id: str) -> dict", "visibility": "public", "startLine": 14, "endLine": 48},
-                        {"name": "scan_directory", "signature": "def scan_directory(root_dir: str, repo_id: str) -> tuple", "visibility": "public", "startLine": 50, "endLine": 88},
-                        {"name": "parse_github_url", "signature": "def parse_github_url(url: str) -> tuple", "visibility": "public", "startLine": 90, "endLine": 105}
                     ],
-                    "codeSnippet": "class IngestionEngine:\n    def process_zip_upload(self, zip_path: str, repo_id: str) -> dict:\n        SecurityGuard.validate_zip(zip_path, target_dir)\n        return scan_directory(target_dir, repo_id)"
-                }
-            ),
-            GraphNode(
-                id="ai-agent",
-                type="serviceNode",
-                position={"x": 720.0, "y": 240.0},
-                data={
-                    "label": "GeminiContextEngine",
-                    "kind": "class",
-                    "layer": "domain",
-                    "path": "src/services/gemini.py",
-                    "language": "Python",
-                    "symbolsCount": 9,
-                    "loc": 165,
-                    "complexity": "Medium",
-                    "blastRadius": "Caution",
-                    "status": "ai-ready",
-                    "badge": "AI Grounding",
-                    "description": "Connects to Google Gemini API via official Google Gen AI SDK. Budgets tokens and generates grounded citations.",
-                    "methods": [
-                        {"name": "ask_codebase", "signature": "async def ask_codebase(repo_id: str, query: str) -> ChatQueryResponse", "visibility": "public", "isAsync": True, "startLine": 18, "endLine": 58},
-                        {"name": "budget_context_tokens", "signature": "def budget_context_tokens(chunks: list, max_tokens=8000) -> str", "visibility": "private", "startLine": 60, "endLine": 75}
-                    ],
-                    "codeSnippet": "class GeminiContextEngine:\n    async def ask_codebase(self, repo_id: str, query: str):\n        response = client.models.generate_content(model=MODEL, contents=prompt)\n        return parse_grounded_response(response)"
-                }
-            ),
-            GraphNode(
-                id="ast-parser",
-                type="functionNode",
-                position={"x": 280.0, "y": 450.0},
-                data={
-                    "label": "TreeSitterParser",
-                    "kind": "function",
-                    "layer": "analysis",
-                    "path": "src/parser/ast.py",
-                    "language": "Python",
-                    "symbolsCount": 24,
-                    "loc": 195,
-                    "complexity": "High",
-                    "blastRadius": "Critical",
-                    "status": "optimized",
-                    "badge": "Grammar AST",
-                    "description": "Multi-language grammar parsing engine extracting AST syntax trees, class definitions, function signatures, and calls.",
-                    "methods": [
-                        {"name": "parse_source_code", "signature": "def parse_source_code(file_path: str, code: str, lang: str) -> list", "visibility": "public", "startLine": 15, "endLine": 35},
-                        {"name": "_parse_python_ast", "signature": "def _parse_python_ast(file_path: str, code: str) -> list", "visibility": "private", "startLine": 38, "endLine": 65},
-                        {"name": "_parse_js_ts", "signature": "def _parse_js_ts(file_path: str, code: str) -> list", "visibility": "private", "startLine": 68, "endLine": 110}
-                    ],
-                    "codeSnippet": "def parse_source_code(file_path: str, code: str, language: str):\n    tree = ast.parse(code)\n    for node in ast.walk(tree):\n        if isinstance(node, ast.ClassDef): ..."
-                }
-            ),
-            GraphNode(
-                id="graph-builder",
-                type="functionNode",
-                position={"x": 560.0, "y": 450.0},
-                data={
-                    "label": "GraphBuilderDAG",
-                    "kind": "function",
-                    "layer": "analysis",
-                    "path": "src/graph/builder.py",
-                    "language": "Python",
-                    "symbolsCount": 18,
-                    "loc": 140,
-                    "complexity": "Medium",
-                    "blastRadius": "Caution",
-                    "status": "graph-core",
-                    "badge": "DAG Topology",
-                    "description": "Computes directed acyclic graphs, resolves symbol connections, identifies circular dependencies, and formats for React Flow.",
-                    "methods": [
-                        {"name": "build_architecture_dag", "signature": "def build_architecture_dag(symbols: list, imports: list) -> GraphResponse", "visibility": "public", "startLine": 10, "endLine": 45},
-                        {"name": "detect_cycles", "signature": "def detect_cycles(edges: list) -> list", "visibility": "private", "startLine": 48, "endLine": 62}
-                    ],
-                    "codeSnippet": "def build_architecture_dag(symbols, imports):\n    nodes = create_graph_nodes(symbols)\n    edges = compute_directed_edges(imports)\n    return ArchitectureGraphResponse(nodes=nodes, edges=edges)"
+                    "codeSnippet": "class IngestionEngine:\n    def process_zip_upload(self, zip_path: str, repo_id: str) -> dict:\n        SecurityGuard.validate_zip(zip_path, target_dir)"
                 }
             ),
             GraphNode(
                 id="postgres-db",
                 type="databaseNode",
-                position={"x": 220.0, "y": 660.0},
+                position={"x": 280.0, "y": 460.0},
                 data={
                     "label": "PostgreSQL + pgvector",
                     "kind": "database",
@@ -174,111 +286,23 @@ class GraphBuilderService:
                     "blastRadius": "Critical",
                     "status": "persisted",
                     "badge": "Relational Storage",
-                    "description": "Stores indexed repositories, files, extracted AST symbols, dependency edges, and conversation histories.",
-                    "methods": [
-                        {"name": "repositories_table", "signature": "CREATE TABLE repositories (id UUID PRIMARY KEY, name VARCHAR...)", "visibility": "public", "startLine": 5, "endLine": 20},
-                        {"name": "symbols_table", "signature": "CREATE TABLE symbols (id UUID PRIMARY KEY, name VARCHAR, file_id UUID...)", "visibility": "public", "startLine": 22, "endLine": 45}
-                    ],
-                    "codeSnippet": "CREATE EXTENSION IF NOT EXISTS vector;\nCREATE TABLE symbols (\n  id UUID PRIMARY KEY,\n  name VARCHAR(255) NOT NULL,\n  file_path VARCHAR(1000) NOT NULL\n);"
-                }
-            ),
-            GraphNode(
-                id="vector-index",
-                type="databaseNode",
-                position={"x": 620.0, "y": 660.0},
-                data={
-                    "label": "CodeChunkVectorStore",
-                    "kind": "database",
-                    "layer": "storage",
-                    "path": "src/vectors/store.py",
-                    "language": "Python",
-                    "symbolsCount": 7,
-                    "loc": 145,
-                    "complexity": "Medium",
-                    "blastRadius": "Minimal",
-                    "status": "vector-search",
-                    "badge": "HNSW Embeddings",
-                    "description": "High-dimensional embedding store with HNSW indexing for rapid cosine similarity retrieval of relevant code chunks.",
-                    "methods": [
-                        {"name": "index_code_chunk", "signature": "async def index_code_chunk(chunk_id: str, vector: list): Promise<void>", "visibility": "public", "startLine": 15, "endLine": 35},
-                        {"name": "find_nearest_neighbors", "signature": "async def find_nearest_neighbors(query_vec: list, top_k=5) -> list", "visibility": "public", "startLine": 38, "endLine": 60}
-                    ],
-                    "codeSnippet": "class CodeChunkVectorStore:\n    async def find_nearest_neighbors(self, query_vec, top_k=5):\n        return await db.execute(select(Chunk).order_by(Chunk.embedding.cosine_distance(query_vec)).limit(top_k))"
+                    "description": "Stores indexed repositories, files, extracted AST symbols, and vector embeddings.",
+                    "methods": [],
+                    "codeSnippet": "CREATE EXTENSION IF NOT EXISTS vector;\nCREATE TABLE symbols (id UUID PRIMARY KEY, name VARCHAR(255));"
                 }
             ),
         ]
 
         edges: List[GraphEdge] = [
-            GraphEdge(
-                id="e1-2",
-                source="api-gateway",
-                target="auth-service",
-                label="authenticates",
-                relation_type=RelationType.CALLS,
-                animated=True
-            ),
-            GraphEdge(
-                id="e1-3",
-                source="api-gateway",
-                target="repo-ingestor",
-                label="dispatches upload",
-                relation_type=RelationType.CALLS,
-                animated=True
-            ),
-            GraphEdge(
-                id="e1-4",
-                source="api-gateway",
-                target="ai-agent",
-                label="queries context",
-                relation_type=RelationType.CALLS
-            ),
-            GraphEdge(
-                id="e3-5",
-                source="repo-ingestor",
-                target="ast-parser",
-                label="extracts AST",
-                relation_type=RelationType.DEPENDS_ON
-            ),
-            GraphEdge(
-                id="e5-6",
-                source="ast-parser",
-                target="graph-builder",
-                label="streams symbols",
-                relation_type=RelationType.DEPENDS_ON
-            ),
-            GraphEdge(
-                id="e6-7",
-                source="graph-builder",
-                target="postgres-db",
-                label="persists relations",
-                relation_type=RelationType.IMPORTS
-            ),
-            GraphEdge(
-                id="e4-8",
-                source="ai-agent",
-                target="vector-index",
-                label="similarity search",
-                relation_type=RelationType.DEPENDS_ON
-            ),
-            GraphEdge(
-                id="e8-7",
-                source="vector-index",
-                target="postgres-db",
-                label="hnsw vector index",
-                relation_type=RelationType.DEPENDS_ON
-            ),
+            GraphEdge(id="e1-2", source="api-gateway", target="auth-service", label="calls: validateToken", relation_type=RelationType.CALLS, animated=True),
+            GraphEdge(id="e1-3", source="api-gateway", target="repo-ingestor", label="calls: process_zip", relation_type=RelationType.CALLS, animated=True),
+            GraphEdge(id="e2-4", source="auth-service", target="postgres-db", label="imports: DB session", relation_type=RelationType.IMPORTS),
+            GraphEdge(id="e3-4", source="repo-ingestor", target="postgres-db", label="persists AST", relation_type=RelationType.DEPENDS_ON),
         ]
 
         return ArchitectureGraphResponse(
             repository_id=repo_id,
             nodes=nodes,
             edges=edges,
-            stats={
-                "total_nodes": len(nodes),
-                "total_edges": len(edges),
-                "modules": 1,
-                "classes": 3,
-                "functions": 2,
-                "databases": 2
-            }
+            stats={"total_nodes": len(nodes), "total_edges": len(edges), "modules": 1, "classes": 2, "functions": 0, "databases": 1}
         )

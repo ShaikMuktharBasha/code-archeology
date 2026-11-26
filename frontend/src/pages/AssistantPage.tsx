@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Send,
@@ -9,30 +9,37 @@ import {
 } from 'lucide-react';
 import { Badge } from '../components/common/Badge';
 import { api } from '../services/api';
-import { ChatMessage } from '../types';
+import { ChatMessage, Repository } from '../types';
 
 export const AssistantPage: React.FC = () => {
   const { id = 'repo-sample-1' } = useParams<{ id: string }>();
+  const [repo, setRepo] = useState<Repository | null>(null);
 
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'msg-init',
-      sender: 'assistant',
-      content:
-        '### Neural Codebase Oracle\n\n' +
-        'I have indexed the AST symbols, file relations, and vector chunks for **code-archaeologist-core**.\n\n' +
-        'Ask natural-language questions about execution paths, authentication flows, or refactoring impact. Every response is grounded in verified repository files and line ranges.',
-      timestamp: 'Online',
-      suggested_followups: [
-        'How does authentication work?',
-        'Where is the database connection initialized?',
-        'What happens when a user logs in?',
-        'Which files depend on AuthService?',
-      ],
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputQuery, setInputQuery] = useState('');
   const [isAsking, setIsAsking] = useState(false);
+
+  useEffect(() => {
+    api.getRepository(id).then((r) => {
+      setRepo(r);
+      setMessages([
+        {
+          id: 'msg-init',
+          sender: 'assistant',
+          content:
+            `### Neural Codebase Oracle\n\n` +
+            `I have indexed **${r.file_count} files** and **${r.symbol_count} AST symbols** for **${r.name}**.\n\n` +
+            `Ask natural-language questions about execution paths, modules, or refactoring impact. Every response is grounded in the repository's actual files and line ranges.`,
+          timestamp: 'Online',
+          suggested_followups: [
+            `Summarize the architecture of ${r.name}`,
+            'What are the main entrypoints and modules?',
+            'Which files have the most symbols?',
+          ],
+        },
+      ]);
+    });
+  }, [id]);
 
   const handleSend = async (queryToSend?: string) => {
     const q = queryToSend || inputQuery.trim();
@@ -79,7 +86,7 @@ export const AssistantPage: React.FC = () => {
             </Badge>
           </div>
           <p className="text-xs text-slate-400 font-mono">
-            Retrieval-grounded Q&A with verified citations from <span className="text-slate-200">{id}</span>
+            Retrieval-grounded Q&A with verified citations from <span className="text-slate-200">{repo?.name || id}</span>
           </p>
         </div>
 

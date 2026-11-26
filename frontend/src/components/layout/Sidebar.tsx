@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -15,12 +15,19 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Badge } from '../common/Badge';
+import { api } from '../../services/api';
+import { Repository } from '../../types';
 
 interface SidebarProps {
   activeRepoId?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeRepoId = 'repo-sample-1' }) => {
+  const [activeRepo, setActiveRepo] = useState<Repository | null>(null);
+
+  useEffect(() => {
+    api.getRepository(activeRepoId).then(setActiveRepo).catch(() => {});
+  }, [activeRepoId]);
   const navItems = [
     {
       to: '/dashboard',
@@ -140,14 +147,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeRepoId = 'repo-sample-1'
             </span>
           </div>
           <p className="text-xs font-semibold text-white truncate font-mono">
-            {activeRepoId === 'repo-sample-1' ? 'code-archaeologist-core' : activeRepoId}
+            {activeRepo?.name || activeRepoId}
           </p>
           <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-charcoal-800 text-[10px] text-slate-400 font-mono">
             <span className="flex items-center gap-1">
               <Cpu className="w-3 h-3 text-indigo-400" />
-              84 files
+              {activeRepo?.file_count ?? 0} files
             </span>
-            <span className="text-indigo-300">420 symbols</span>
+            <span className="text-indigo-300">{activeRepo?.symbol_count ?? 0} symbols</span>
           </div>
         </div>
       </div>

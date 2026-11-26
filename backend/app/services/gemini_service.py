@@ -1,151 +1,153 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Optional, Dict, Any
 from app.core.config import settings
 from app.schemas.chat import ChatQueryResponse, CitationReference
+from app.services.repo_store import repo_store
+
 
 class GeminiCodebaseIntelligence:
     """
-    Connects to Google Gemini API via official Google Gen AI SDK (`google-genai`).
-    Provides retrieval-grounded codebase explanations with exact file and line citations.
+    Retrieval-grounded codebase Q&A powered by Google Gemini (`google-genai`)
+    using the actual files and AST symbols of the target repository.
     """
+
+    @classmethod
+    def _retrieve_relevant_context(
+        cls, repo_id: str, query: str, selected_files: Optional[List[str]] = None
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        files = repo_store.get_files(repo_id)
+        symbols = repo_store.get_symbols(repo_id)
+
+        keywords = [w.lower() for w in query.replace("?", "").replace(".", "").split() if len(w) > 2]
+
+        scored_files = []
+        for f in files:
+            score = 0
+            if selected_files and f["path"] in selected_files:
+                score += 50
+            path_lower = f["path"].lower()
+            content_lower = (f.get("content") or "").lower()
+            for kw in keywords:
+                if kw in path_lower:
+                    score += 10
+                if kw in content_lower:
+                    score += 3
+            if score > 0:
+                scored_files.append((score, f))
+
+        scored_files.sort(key=lambda x: x[0], reverse=True)
+        top_files = [f for _, f in scored_files[:4]]
+        if not top_files:
+            top_files = files[:4]
+
+        top_paths = {f["path"] for f in top_files}
+        relevant_symbols = [
+            s for s in symbols
+            if s["file_path"] in top_paths or any(kw in s["name"].lower() for kw in keywords)
+        ][:8]
+
+        return top_files, relevant_symbols
 
     @classmethod
     async def ask_codebase(
         cls,
         repository_id: str,
         query: str,
-        context_files: Optional[List[str]] = None
+        context_files: Optional[List[str]] = None,
     ) -> ChatQueryResponse:
-        """
-        Executes a context-bounded query against the analyzed codebase.
-        If GEMINI_API_KEY is configured, calls the Google Gen AI API.
-        Otherwise, yields an intelligent deterministic grounded response with verified citations.
-        """
-        api_key = settings.GEMINI_API_KEY
+        repo = repo_store.get_repository(repository_id)
+        top_files, relevant_symbols = cls._retrieve_relevant_context(
+            repository_id, query, context_files
+        )
 
-        # If API key is present, attempt live Google Gen AI call
+        # Build citations from real retrieved files/symbols
+        citations: List[CitationReference] = []
+        for f in top_files[:3]:
+            f_syms = [s for s in relevant_symbols if s["file_path"] == f["path"]]
+            start_l = f_syms[0]["start_line"] if f_syms else 1
+            end_l = f_syms[0]["end_line"] if f_syms else min(20, f.get("line_count", 20))
+            lines = (f.get("content") or "").splitlines()
+            snippet = "\n".join(lines[max(0, start_l - 1): min(len(lines), start_l + 6)])
+            citations.append(
+                CitationReference(
+                    file_path=f["path"],
+                    start_line=start_l,
+                    end_line=end_l,
+                    symbol_name=f_syms[0]["name"] if f_syms else f["name"],
+                    snippet=snippet or f"// {f['path']}",
+                )
+            )
+
+        api_key = settings.GEMINI_API_KEY
         if api_key and api_key != "your_gemini_api_key_here":
             try:
                 from google import genai
                 client = genai.Client(api_key=api_key)
+
+                context_block = "\n\n".join(
+                    f"--- FILE: {f['path']} ({f.get('language')}) ---\n{(f.get('content') or '')[:3500]}"
+                    for f in top_files
+                )
+                symbol_block = "\n".join(
+                    f"- {s['symbol_type']} {s['name']} in {s['file_path']} (L{s['start_line']}-{s['end_line']}): {s.get('signature', '')}"
+                    for s in relevant_symbols
+                )
+
                 prompt = (
-                    f"You are Code Archaeologist AI, an expert software architect analyzing repository {repository_id}.\n"
-                    f"Context files: {context_files or 'full codebase graph'}\n"
-                    f"User question: {query}\n\n"
-                    "Provide a clear, architecture-accurate answer citing specific files, functions, and lines where relevant."
+                    f"You are Code Archaeologist AI analyzing repository '{repo['name'] if repo else repository_id}'.\n"
+                    f"Only state facts directly observed in the provided files and symbols.\n\n"
+                    f"EXTRACTED SYMBOLS:\n{symbol_block}\n\n"
+                    f"SOURCE CONTEXT:\n{context_block}\n\n"
+                    f"USER QUESTION: {query}\n"
                 )
                 response = client.models.generate_content(
                     model=settings.GEMINI_MODEL,
-                    contents=prompt
+                    contents=prompt,
                 )
-                answer_text = response.text or "No response generated."
-                return ChatQueryResponse(
-                    answer=answer_text,
-                    citations=[
-                        CitationReference(
-                            file_path="src/services/auth.ts",
-                            start_line=14,
-                            end_line=45,
-                            symbol_name="AuthService",
-                            snippet="export class AuthService { async validateToken(token: string) {...} }"
-                        )
-                    ],
-                    suggested_followups=[
-                        "What happens when token refresh fails?",
-                        "Which files call validateToken?",
-                        "How is rate limiting applied to auth routes?"
-                    ]
-                )
-            except Exception as e:
-                # Log error and fall back cleanly
+                if response.text:
+                    return ChatQueryResponse(
+                        answer=response.text,
+                        citations=citations,
+                        suggested_followups=[
+                            f"Explain {relevant_symbols[0]['name']}" if relevant_symbols else "List main entrypoints",
+                            f"What depends on {top_files[0]['name']}?" if top_files else "Show repository structure",
+                        ],
+                        confidence_score=0.96,
+                    )
+            except Exception:
                 pass
 
-        # Intelligent grounded contextual synthesis
-        return cls._generate_contextual_sample_response(query, repository_id)
+        # Grounded synthesis from actual repo metadata & files when GEMINI_API_KEY is not set
+        repo_name = repo["name"] if repo else repository_id
+        langs = ", ".join(f"{k} ({v}%)" for k, v in (repo.get("languages", {}) if repo else {}).items())
+        file_summary = "\n".join(
+            f"- `{f['path']}` ({f.get('language')}, {f.get('line_count')} lines, {f.get('symbols_count', 0)} AST symbols)"
+            for f in top_files
+        )
+        sym_summary = "\n".join(
+            f"- **`{s['name']}`** ({s['symbol_type']}) in `{s['file_path']}` (L{s['start_line']}–{s['end_line']})"
+            for s in relevant_symbols[:5]
+        ) or "- No matching AST symbols extracted for these files."
 
-    @classmethod
-    def _generate_contextual_sample_response(cls, query: str, repo_id: str) -> ChatQueryResponse:
-        lower_q = query.lower()
+        answer = (
+            f"### Grounded Codebase Analysis for `{repo_name}`\n\n"
+            f"**Repository Overview:** {repo.get('file_count', len(top_files)) if repo else len(top_files)} indexed files, "
+            f"{repo.get('symbol_count', len(relevant_symbols)) if repo else len(relevant_symbols)} extracted symbols"
+            + (f" across {langs}." if langs else ".")
+            + f"\n\n**Most Relevant Files for \"{query}\":**\n{file_summary}\n\n"
+            f"**Key Extracted Symbols:**\n{sym_summary}\n\n"
+            f"> *Note: Configure `GEMINI_API_KEY` in `.env` for full LLM-synthesized architectural explanations over these retrieved files.*"
+        )
 
-        if "auth" in lower_q or "login" in lower_q:
-            return ChatQueryResponse(
-                answer=(
-                    "### Authentication Architecture & Flow\n\n"
-                    "Authentication is orchestrated through a dual-layer JWT token pipeline:\n\n"
-                    "1. **Entry Point:** Inbound requests pass through `src/api/router.ts` where the `authMiddleware` intercepts the `Authorization: Bearer <token>` header.\n"
-                    "2. **Validation:** The header is delegated to `AuthService.validateToken()` in `src/services/auth.ts` (lines 24–48), which verifies signature integrity against the configured asymmetric public key.\n"
-                    "3. **User Hydration:** If valid, claims are decoded and the user context is injected into request state. If expired, an `HTTP 401 Unauthorized` is returned.\n\n"
-                    "**Database Connection:** Session persistence is checked against `PostgreSQL` using connection pooling defined in `src/database/schema.sql`."
-                ),
-                citations=[
-                    CitationReference(
-                        file_path="src/services/auth.ts",
-                        start_line=24,
-                        end_line=48,
-                        symbol_name="AuthService.validateToken",
-                        snippet="async validateToken(token: string): Promise<UserClaims> {\n  return jwt.verify(token, this.publicKey);\n}"
-                    ),
-                    CitationReference(
-                        file_path="src/api/router.ts",
-                        start_line=35,
-                        end_line=42,
-                        symbol_name="authMiddleware",
-                        snippet="export const authMiddleware = async (req, res, next) => {\n  const token = req.headers.authorization?.split(' ')[1];\n  req.user = await authService.validateToken(token);\n  next();\n};"
-                    )
-                ],
-                suggested_followups=[
-                    "Where is the database connection initialized?",
-                    "What happens when a user logs in?",
-                    "Which files depend on AuthService?"
-                ],
-                confidence_score=0.98
-            )
-        elif "database" in lower_q or "connection" in lower_q or "db" in lower_q:
-            return ChatQueryResponse(
-                answer=(
-                    "### Database Initialization & Connection Pooling\n\n"
-                    "The database layer is configured via **SQLAlchemy AsyncEngine** and **pgvector**:\n\n"
-                    "1. **Engine Setup:** Initialized in `src/database/schema.sql` and `src/core/database.py` (lines 12–28) using an asynchronous connection pool (`asyncpg`).\n"
-                    "2. **Session Lifecycle:** The `get_db()` async generator provides scoped sessions per request, ensuring automatic transaction commit or rollback.\n"
-                    "3. **Vector Extensions:** The schema runs `CREATE EXTENSION IF NOT EXISTS vector;` to enable high-dimensional HNSW vector indexes for code chunk similarity."
-                ),
-                citations=[
-                    CitationReference(
-                        file_path="src/core/database.py",
-                        start_line=12,
-                        end_line=28,
-                        symbol_name="get_db",
-                        snippet="async def get_db():\n    async with AsyncSessionLocal() as session:\n        yield session"
-                    )
-                ],
-                suggested_followups=[
-                    "What models are defined in the database?",
-                    "How are code chunk embeddings stored?",
-                    "What is the maximum connection pool size?"
-                ],
-                confidence_score=0.96
-            )
-        else:
-            return ChatQueryResponse(
-                answer=(
-                    f"### Codebase Intelligence Analysis for '{query}'\n\n"
-                    f"Based on static AST analysis and the architecture graph of `{repo_id}`:\n\n"
-                    "- **Core Architecture:** The repository follows a modular layered architecture separating API routing, domain services (`IngestionEngine`, `AuthService`, `GeminiContextEngine`), and data persistence (`PostgreSQL + pgvector`).\n"
-                    "- **Data Inflow:** External code files enter via `src/services/ingestion.py`, where security checks validate safe uncompressed payloads before passing to `TreeSitterParser` in `src/parser/ast.py`.\n"
-                    "- **Key Observation:** Adding modifications here requires updating the corresponding schema contract in `src/schemas/` to keep frontend and backend synchronized."
-                ),
-                citations=[
-                    CitationReference(
-                        file_path="src/services/ingestion.py",
-                        start_line=15,
-                        end_line=45,
-                        symbol_name="IngestionEngine.process_zip_upload",
-                        snippet="def process_zip_upload(zip_path: str, repo_id: str): ..."
-                    )
-                ],
-                suggested_followups=[
-                    "How does authentication work?",
-                    "Where is the database connection initialized?",
-                    "Show impact of modifying IngestionEngine"
-                ],
-                confidence_score=0.92
-            )
+        followups = []
+        if relevant_symbols:
+            followups.append(f"Where is {relevant_symbols[0]['name']} used?")
+        if top_files:
+            followups.append(f"What does {top_files[0]['name']} import?")
+        followups.append("Summarize the overall architecture")
+
+        return ChatQueryResponse(
+            answer=answer,
+            citations=citations,
+            suggested_followups=followups,
+            confidence_score=0.92,
+        )

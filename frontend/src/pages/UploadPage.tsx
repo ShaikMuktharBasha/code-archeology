@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UploadCloud, Github, Shield, Sparkles, CheckCircle2 } from 'lucide-react';
+import { UploadCloud, Github, Shield, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Card } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { ZipDropzone } from '../components/upload/ZipDropzone';
@@ -13,44 +13,45 @@ export const UploadPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'zip' | 'github'>('zip');
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressStep, setProgressStep] = useState(0);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const simulateAndFinish = (repoId: string) => {
+  const runIngestion = async (task: () => Promise<{ id: string }>) => {
+    setErrorMsg(null);
     setIsProcessing(true);
     setProgressStep(0);
 
     const stepInterval = setInterval(() => {
-      setProgressStep((prev) => {
-        if (prev >= 3) {
-          clearInterval(stepInterval);
-          setTimeout(() => {
-            setIsProcessing(false);
-            navigate(`/architecture/${repoId}`);
-          }, 800);
-          return 3;
-        }
-        return prev + 1;
-      });
-    }, 900);
+      setProgressStep((prev) => (prev < 2 ? prev + 1 : prev));
+    }, 600);
+
+    try {
+      const repo = await task();
+      clearInterval(stepInterval);
+      setProgressStep(3);
+      setTimeout(() => {
+        setIsProcessing(false);
+        navigate(`/architecture/${repo.id}`);
+      }, 600);
+    } catch (err) {
+      clearInterval(stepInterval);
+      setIsProcessing(false);
+      let msg = (err as Error).message || 'Failed to analyze repository.';
+      try {
+        const parsed = JSON.parse(msg);
+        if (parsed.detail) msg = parsed.detail;
+      } catch {
+        // use raw message
+      }
+      setErrorMsg(msg);
+    }
   };
 
   const handleZipSelected = async (file: File) => {
-    try {
-      setIsProcessing(true);
-      const repo = await api.uploadZip(file);
-      simulateAndFinish(repo.id);
-    } catch {
-      simulateAndFinish('repo-sample-1');
-    }
+    await runIngestion(() => api.uploadZip(file));
   };
 
   const handleGitHubSubmit = async (url: string, branch: string) => {
-    try {
-      setIsProcessing(true);
-      const repo = await api.ingestGithub(url, branch);
-      simulateAndFinish(repo.id);
-    } catch {
-      simulateAndFinish('repo-sample-2');
-    }
+    await runIngestion(() => api.ingestGithub(url, branch));
   };
 
   return (
@@ -65,15 +66,18 @@ export const UploadPage: React.FC = () => {
         </div>
         <h2 className="text-3xl font-extrabold tracking-tight text-white">Ingest New Repository</h2>
         <p className="text-sm text-slate-400 mt-1.5">
-          Upload an archive or connect a GitHub repository. Code Archaeologist will validate
-          file structures, extract AST symbol trees, and synthesize the architectural knowledge graph.
+          Upload an archive or connect a GitHub repository. Code Archaeologist will download and validate
+          file structures, extract real AST symbol trees, and synthesize the architectural knowledge graph.
         </p>
       </div>
 
       {/* Mode Switcher Pills */}
       <div className="inline-flex p-1 rounded-xl bg-charcoal-950 border border-charcoal-800 gap-1">
         <button
-          onClick={() => setActiveTab('zip')}
+          onClick={() => {
+            setActiveTab('zip');
+            setErrorMsg(null);
+          }}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono font-medium transition-all ${
             activeTab === 'zip'
               ? 'bg-indigo-600 text-white shadow-glow'
@@ -84,7 +88,10 @@ export const UploadPage: React.FC = () => {
           <span>ZIP Archive</span>
         </button>
         <button
-          onClick={() => setActiveTab('github')}
+          onClick={() => {
+            setActiveTab('github');
+            setErrorMsg(null);
+          }}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono font-medium transition-all ${
             activeTab === 'github'
               ? 'bg-indigo-600 text-white shadow-glow'
@@ -102,6 +109,13 @@ export const UploadPage: React.FC = () => {
           <ZipDropzone onFileSelected={handleZipSelected} isLoading={isProcessing} />
         ) : (
           <GitHubInput onSubmit={handleGitHubSubmit} isLoading={isProcessing} />
+        )}
+
+        {errorMsg && (
+          <div className="flex items-start gap-2.5 text-xs text-rose-300 bg-rose-950/50 border border-rose-500/30 px-4 py-3 rounded-xl font-mono">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5" />
+            <span>{errorMsg}</span>
+          </div>
         )}
 
         {isProcessing && <IngestionProgress currentStep={progressStep} />}
