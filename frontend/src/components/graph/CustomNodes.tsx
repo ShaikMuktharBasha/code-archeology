@@ -115,10 +115,10 @@ export const ModuleNode = memo(({ data, selected }: NodeProps) => {
 
   return (
     <div
-      className={`px-4 py-3 rounded-xl border transition-all min-w-[240px] max-w-[280px] bg-charcoal-850 shadow-subtle ${
+      className={`px-4 py-3.5 rounded-2xl border transition-all min-w-[250px] max-w-[290px] glass-panel shadow-panel ${
         selected
-          ? 'border-indigo-500 ring-2 ring-indigo-500/50 bg-charcoal-800 shadow-glow'
-          : 'border-charcoal-700 hover:border-charcoal-600'
+          ? 'border-cyan-400 ring-2 ring-cyan-400/40 shadow-glow-cyan'
+          : 'border-charcoal-700/90 hover:border-indigo-500/50'
       }`}
     >
       <NodeHandles color="#6366f1" />
@@ -179,10 +179,10 @@ export const ServiceNode = memo(({ data, selected }: NodeProps) => {
 
   return (
     <div
-      className={`px-4 py-3 rounded-xl border transition-all min-w-[240px] max-w-[280px] bg-charcoal-850 shadow-subtle ${
+      className={`px-4 py-3.5 rounded-2xl border transition-all min-w-[250px] max-w-[290px] glass-panel shadow-panel ${
         selected
-          ? 'border-indigo-400 ring-2 ring-indigo-500/50 bg-charcoal-800 shadow-glow'
-          : 'border-indigo-900/60 hover:border-indigo-700/80'
+          ? 'border-indigo-400 ring-2 ring-indigo-500/50 shadow-glow'
+          : 'border-indigo-900/60 hover:border-indigo-500/60'
       }`}
     >
       <NodeHandles color="#818cf8" />
@@ -247,10 +247,10 @@ export const FunctionNode = memo(({ data, selected }: NodeProps) => {
 
   return (
     <div
-      className={`px-4 py-3 rounded-xl border transition-all min-w-[240px] max-w-[280px] bg-charcoal-850 shadow-subtle ${
+      className={`px-4 py-3.5 rounded-2xl border transition-all min-w-[250px] max-w-[290px] glass-panel shadow-panel ${
         selected
-          ? 'border-amber-500 ring-2 ring-amber-500/50 bg-charcoal-800 shadow-glow'
-          : 'border-charcoal-700 hover:border-charcoal-600'
+          ? 'border-amber-400 ring-2 ring-amber-400/40 shadow-glow'
+          : 'border-charcoal-700/90 hover:border-amber-500/50'
       }`}
     >
       <NodeHandles color="#f59e0b" />
@@ -306,10 +306,10 @@ export const DatabaseNode = memo(({ data, selected }: NodeProps) => {
 
   return (
     <div
-      className={`px-4 py-3 rounded-xl border transition-all min-w-[240px] max-w-[280px] bg-charcoal-850 shadow-subtle ${
+      className={`px-4 py-3.5 rounded-2xl border transition-all min-w-[250px] max-w-[290px] glass-panel shadow-panel ${
         selected
-          ? 'border-emerald-500 ring-2 ring-emerald-500/50 bg-charcoal-800 shadow-glow'
-          : 'border-emerald-900/60 hover:border-emerald-700'
+          ? 'border-emerald-400 ring-2 ring-emerald-400/40 shadow-glow'
+          : 'border-emerald-900/60 hover:border-emerald-500/60'
       }`}
     >
       <NodeHandles color="#10b981" />

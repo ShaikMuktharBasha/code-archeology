@@ -39,7 +39,6 @@ export const UploadPage: React.FC = () => {
       const repo = await api.uploadZip(file);
       simulateAndFinish(repo.id);
     } catch {
-      // Fallback simulation
       simulateAndFinish('repo-sample-1');
     }
   };
@@ -50,7 +49,6 @@ export const UploadPage: React.FC = () => {
       const repo = await api.ingestGithub(url, branch);
       simulateAndFinish(repo.id);
     } catch {
-      // Fallback simulation
       simulateAndFinish('repo-sample-2');
     }
   };
@@ -59,27 +57,27 @@ export const UploadPage: React.FC = () => {
     <div className="p-8 max-w-4xl mx-auto space-y-8">
       {/* Header */}
       <div>
-        <div className="flex items-center gap-2 mb-2">
-          <Badge variant="indigo" size="sm">
-            Ingestion Engine
+        <div className="flex items-center gap-2.5 mb-2">
+          <Badge variant="cyan" size="sm">
+            INGESTION BAY
           </Badge>
-          <span className="text-xs text-slate-400 font-mono">Multi-Language AST Analysis</span>
+          <span className="text-xs text-slate-400 font-mono">Multi-Language AST Pipeline</span>
         </div>
-        <h2 className="text-2xl font-bold tracking-tight text-white">Ingest New Repository</h2>
-        <p className="text-sm text-slate-400 mt-1">
-          Upload an existing codebase or connect a GitHub repository. Code Archaeologist will validate
-          file structures, extract symbol trees, and build the architectural knowledge graph.
+        <h2 className="text-3xl font-extrabold tracking-tight text-white">Ingest New Repository</h2>
+        <p className="text-sm text-slate-400 mt-1.5">
+          Upload an archive or connect a GitHub repository. Code Archaeologist will validate
+          file structures, extract AST symbol trees, and synthesize the architectural knowledge graph.
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-charcoal-800 gap-4">
+      {/* Mode Switcher Pills */}
+      <div className="inline-flex p-1 rounded-xl bg-charcoal-950 border border-charcoal-800 gap-1">
         <button
           onClick={() => setActiveTab('zip')}
-          className={`flex items-center gap-2 pb-3 text-sm font-medium border-b-2 transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono font-medium transition-all ${
             activeTab === 'zip'
-              ? 'border-indigo-500 text-indigo-400'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
+              ? 'bg-indigo-600 text-white shadow-glow'
+              : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <UploadCloud className="w-4 h-4" />
@@ -87,10 +85,10 @@ export const UploadPage: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('github')}
-          className={`flex items-center gap-2 pb-3 text-sm font-medium border-b-2 transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono font-medium transition-all ${
             activeTab === 'github'
-              ? 'border-indigo-500 text-indigo-400'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
+              ? 'bg-indigo-600 text-white shadow-glow'
+              : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <Github className="w-4 h-4" />
@@ -99,7 +97,7 @@ export const UploadPage: React.FC = () => {
       </div>
 
       {/* Upload Box */}
-      <Card className="p-8 space-y-6">
+      <Card glow className="p-8 space-y-6">
         {activeTab === 'zip' ? (
           <ZipDropzone onFileSelected={handleZipSelected} isLoading={isProcessing} />
         ) : (
@@ -110,28 +108,34 @@ export const UploadPage: React.FC = () => {
       </Card>
 
       {/* Security & Ingestion Policy */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-charcoal-800 text-xs text-slate-400">
-        <div className="flex items-start gap-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 text-xs text-slate-400">
+        <Card className="p-4 flex items-start gap-3">
           <Shield className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold text-slate-300 block">Zip Slip Prevention</span>
-            <span>Target path sanitization verifies archive entries stay strictly within sandboxed extraction dirs.</span>
+            <span className="font-semibold text-slate-200 block mb-0.5">Zip Slip Defense</span>
+            <span className="text-[11px] leading-relaxed">
+              Sanitizes archive paths to stay strictly within sandboxed directories.
+            </span>
           </div>
-        </div>
-        <div className="flex items-start gap-2.5">
-          <Sparkles className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
+        </Card>
+        <Card className="p-4 flex items-start gap-3">
+          <Sparkles className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold text-slate-300 block">No Code Execution</span>
-            <span>Codebases are statically parsed via AST grammars; uploaded binaries or scripts are never executed.</span>
+            <span className="font-semibold text-slate-200 block mb-0.5">Zero Code Execution</span>
+            <span className="text-[11px] leading-relaxed">
+              Parsed statically via AST grammars; uploaded scripts are never executed.
+            </span>
           </div>
-        </div>
-        <div className="flex items-start gap-2.5">
+        </Card>
+        <Card className="p-4 flex items-start gap-3">
           <CheckCircle2 className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold text-slate-300 block">Ignored Artifacts</span>
-            <span>Automatically filters node_modules, .git, __pycache__, and build artifacts to maximize speed.</span>
+            <span className="font-semibold text-slate-200 block mb-0.5">Smart Filtering</span>
+            <span className="text-[11px] leading-relaxed">
+              Automatically prunes node_modules, .git, __pycache__, and binaries.
+            </span>
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ interface CardProps {
   className?: string;
   onClick?: () => void;
   hoverable?: boolean;
+  glow?: boolean;
 }
 
 export const Card: React.FC<CardProps> = ({
@@ -13,13 +14,17 @@ export const Card: React.FC<CardProps> = ({
   className,
   onClick,
   hoverable = false,
+  glow = false,
 }) => {
   return (
     <div
       onClick={onClick}
       className={clsx(
-        'bg-charcoal-850/80 backdrop-blur-sm border border-charcoal-750 rounded-xl p-5 transition-all duration-200',
-        hoverable && 'hover:border-charcoal-600 hover:bg-charcoal-800/90 cursor-pointer hover:shadow-panel',
+        'relative glass-panel border border-charcoal-700/80 rounded-2xl p-5 transition-all duration-200 overflow-hidden',
+        'before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none',
+        hoverable &&
+          'hover:border-indigo-500/40 hover:shadow-panel hover:-translate-y-0.5 cursor-pointer',
+        glow && 'shadow-glow border-indigo-500/35',
         className
       )}
     >

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Search, FolderTree } from 'lucide-react';
 import { FileTree } from '../components/explorer/FileTree';
 import { FileViewer } from '../components/explorer/FileViewer';
 import { LanguageBar } from '../components/explorer/LanguageBar';
@@ -37,18 +37,18 @@ export const ExplorerPage: React.FC = () => {
   );
 
   return (
-    <div className="h-full flex flex-col p-6 space-y-4">
+    <div className="h-full flex flex-col p-6 space-y-5">
       {/* Top Meta Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-charcoal-800">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-charcoal-800/80">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h2 className="text-xl font-bold tracking-tight text-white">Repository Explorer</h2>
-            <Badge variant="indigo" size="sm">
+          <div className="flex items-center gap-2.5 mb-1">
+            <h2 className="text-2xl font-extrabold tracking-tight text-white">Code Explorer</h2>
+            <Badge variant="cyan" size="sm">
               AST Indexed
             </Badge>
           </div>
           <p className="text-xs text-slate-400 font-mono">
-            Target: {repository?.name || id} ({files.length} indexed files)
+            Target: <span className="text-slate-200">{repository?.name || id}</span> ({files.length} indexed files)
           </p>
         </div>
 
@@ -63,15 +63,23 @@ export const ExplorerPage: React.FC = () => {
       {/* Main split view: File tree on left, Source viewer on right */}
       <div className="flex-1 flex gap-4 overflow-hidden">
         {/* Left file navigator pane */}
-        <div className="w-72 bg-charcoal-850 border border-charcoal-750 rounded-xl p-3 flex flex-col overflow-hidden">
+        <div className="w-72 glass-panel border border-charcoal-750 rounded-2xl p-3.5 flex flex-col overflow-hidden shadow-panel">
+          <div className="flex items-center justify-between mb-2.5 px-1">
+            <span className="text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <FolderTree className="w-3.5 h-3.5 text-cyan-400" />
+              <span>File Matrix</span>
+            </span>
+            <span className="text-[10px] font-mono text-slate-500">{filteredFiles.length}</span>
+          </div>
+
           <div className="relative mb-3">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search files..."
-              className="w-full pl-8 pr-3 py-1.5 bg-charcoal-900 border border-charcoal-700 rounded-lg text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 font-mono"
+              placeholder="Filter files..."
+              className="w-full pl-8 pr-3 py-1.5 bg-charcoal-950/90 border border-charcoal-750 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-mono"
             />
           </div>
 
@@ -89,7 +97,7 @@ export const ExplorerPage: React.FC = () => {
           {currentContent ? (
             <FileViewer file={currentContent} />
           ) : (
-            <div className="h-full flex items-center justify-center text-slate-400 text-xs font-mono">
+            <div className="h-full glass-panel border border-charcoal-750 rounded-2xl flex items-center justify-center text-slate-400 text-xs font-mono">
               Select a file to inspect AST symbols and source lines
             </div>
           )}

@@ -5,6 +5,7 @@ import {
   Sparkles,
   FileCode,
   ArrowRight,
+  Cpu,
 } from 'lucide-react';
 import { Badge } from '../components/common/Badge';
 import { api } from '../services/api';
@@ -18,10 +19,10 @@ export const AssistantPage: React.FC = () => {
       id: 'msg-init',
       sender: 'assistant',
       content:
-        '### Code Archaeologist Intelligence\n\n' +
+        '### Neural Codebase Oracle\n\n' +
         'I have indexed the AST symbols, file relations, and vector chunks for **code-archaeologist-core**.\n\n' +
-        'You can ask natural-language questions about how the codebase operates, trace execution paths, or request refactoring impact assessments. All answers cite verified repository files and line boundaries.',
-      timestamp: '10:45 AM',
+        'Ask natural-language questions about execution paths, authentication flows, or refactoring impact. Every response is grounded in verified repository files and line ranges.',
+      timestamp: 'Online',
       suggested_followups: [
         'How does authentication work?',
         'Where is the database connection initialized?',
@@ -69,20 +70,21 @@ export const AssistantPage: React.FC = () => {
   return (
     <div className="h-full flex flex-col p-6 max-w-5xl mx-auto space-y-4">
       {/* Top Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-charcoal-800 flex-shrink-0">
+      <div className="flex items-center justify-between pb-4 border-b border-charcoal-800/80 flex-shrink-0">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold tracking-tight text-white">AI Codebase Assistant</h2>
-            <Badge variant="indigo" size="sm">
+          <div className="flex items-center gap-2.5 mb-1">
+            <h2 className="text-2xl font-extrabold tracking-tight text-white">Neural Code Assistant</h2>
+            <Badge variant="cyan" size="sm">
               Gemini Powered
             </Badge>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Strictly grounded semantic answers with source citations from {id}.
+          <p className="text-xs text-slate-400 font-mono">
+            Retrieval-grounded Q&A with verified citations from <span className="text-slate-200">{id}</span>
           </p>
         </div>
 
         <Badge variant="success" size="sm">
+          <Cpu className="w-3 h-3 mr-1" />
           AST Grounding Active
         </Badge>
       </div>
@@ -95,42 +97,42 @@ export const AssistantPage: React.FC = () => {
             className={`flex gap-3.5 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             {msg.sender === 'assistant' && (
-              <div className="w-8 h-8 rounded-lg bg-indigo-950/60 border border-indigo-800/60 flex items-center justify-center text-indigo-400 flex-shrink-0 mt-1">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600/30 to-cyan-500/20 border border-cyan-500/35 flex items-center justify-center text-cyan-400 flex-shrink-0 mt-1 shadow-glow-cyan">
                 <Sparkles className="w-4 h-4" />
               </div>
             )}
 
             <div
-              className={`max-w-2xl rounded-xl p-4 text-xs leading-relaxed ${
+              className={`max-w-2xl rounded-2xl p-4 text-xs leading-relaxed ${
                 msg.sender === 'user'
-                  ? 'bg-indigo-600 text-white shadow-subtle'
-                  : 'bg-charcoal-850 border border-charcoal-750 text-slate-200'
+                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-glow border border-indigo-400/30'
+                  : 'glass-panel border border-charcoal-750 text-slate-200 shadow-panel'
               }`}
             >
-              <div className="prose prose-invert max-w-none whitespace-pre-wrap font-sans text-xs">
+              <div className="prose prose-invert max-w-none whitespace-pre-wrap font-sans text-xs leading-relaxed">
                 {msg.content}
               </div>
 
               {/* Citations Box */}
               {msg.citations && msg.citations.length > 0 && (
                 <div className="mt-4 pt-3 border-t border-charcoal-750 space-y-2">
-                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-300 font-mono">
-                    <FileCode className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Verified Codebase Citations:</span>
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-cyan-300 font-mono">
+                    <FileCode className="w-3.5 h-3.5" />
+                    <span>Verified Codebase Citations</span>
                   </div>
                   {msg.citations.map((cite, cIdx) => (
                     <div
                       key={cIdx}
-                      className="p-2.5 rounded bg-charcoal-900 border border-charcoal-750 font-mono text-[11px]"
+                      className="p-3 rounded-xl bg-charcoal-950/80 border border-charcoal-750 font-mono text-[11px]"
                     >
-                      <div className="flex items-center justify-between text-indigo-300 mb-1">
+                      <div className="flex items-center justify-between text-indigo-300 mb-1.5">
                         <span className="font-semibold">{cite.file_path}</span>
-                        <span className="text-slate-400">
+                        <Badge variant="outline" size="sm">
                           L{cite.start_line}–{cite.end_line}
-                        </span>
+                        </Badge>
                       </div>
                       {cite.snippet && (
-                        <pre className="text-slate-300 overflow-x-auto text-[10px] p-1.5 bg-charcoal-950/80 rounded">
+                        <pre className="text-slate-300 overflow-x-auto text-[10px] p-2 bg-charcoal-900 rounded-lg border border-charcoal-800">
                           {cite.snippet}
                         </pre>
                       )}
@@ -141,15 +143,15 @@ export const AssistantPage: React.FC = () => {
 
               {/* Suggested Followups */}
               {msg.suggested_followups && msg.suggested_followups.length > 0 && (
-                <div className="mt-3 pt-2.5 border-t border-charcoal-750 flex flex-wrap gap-2">
+                <div className="mt-3.5 pt-3 border-t border-charcoal-750/80 flex flex-wrap gap-2">
                   {msg.suggested_followups.map((followup, fIdx) => (
                     <button
                       key={fIdx}
                       onClick={() => handleSend(followup)}
-                      className="px-2.5 py-1 rounded bg-charcoal-800 hover:bg-charcoal-750 border border-charcoal-700 text-slate-300 text-[11px] transition-colors flex items-center gap-1"
+                      className="px-3 py-1.5 rounded-xl bg-charcoal-900/90 hover:bg-indigo-600/20 border border-charcoal-700 hover:border-cyan-500/40 text-slate-300 hover:text-white text-[11px] transition-all flex items-center gap-1.5"
                     >
                       <span>{followup}</span>
-                      <ArrowRight className="w-3 h-3 text-indigo-400" />
+                      <ArrowRight className="w-3 h-3 text-cyan-400" />
                     </button>
                   ))}
                 </div>
@@ -164,11 +166,11 @@ export const AssistantPage: React.FC = () => {
 
         {isAsking && (
           <div className="flex gap-3.5 justify-start">
-            <div className="w-8 h-8 rounded-lg bg-indigo-950/60 border border-indigo-800/60 flex items-center justify-center text-indigo-400 flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-indigo-950/60 border border-cyan-500/40 flex items-center justify-center text-cyan-400 flex-shrink-0">
               <Sparkles className="w-4 h-4 animate-spin" />
             </div>
-            <div className="bg-charcoal-850 border border-charcoal-750 rounded-xl p-4 text-xs text-slate-300 font-mono flex items-center gap-2">
-              <span className="animate-pulse">Retrieving AST symbols & grounding citations...</span>
+            <div className="glass-panel border border-charcoal-750 rounded-2xl p-4 text-xs text-cyan-300 font-mono flex items-center gap-2">
+              <span className="animate-pulse">Scanning AST symbols & grounding citations...</span>
             </div>
           </div>
         )}
@@ -188,13 +190,13 @@ export const AssistantPage: React.FC = () => {
             value={inputQuery}
             onChange={(e) => setInputQuery(e.target.value)}
             placeholder="Ask anything about the codebase (e.g. 'How does authentication work?')..."
-            className="w-full pl-4 pr-12 py-3 bg-charcoal-850 border border-charcoal-750 rounded-xl text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-indigo-500 shadow-panel"
+            className="w-full pl-4 pr-14 py-3.5 glass-panel border border-charcoal-700 rounded-2xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400 shadow-panel font-mono"
             disabled={isAsking}
           />
           <button
             type="submit"
             disabled={isAsking || !inputQuery.trim()}
-            className="absolute right-2 p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 transition-colors"
+            className="absolute right-2 p-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white disabled:opacity-40 transition-all shadow-glow"
           >
             <Send className="w-3.5 h-3.5" />
           </button>

@@ -59,12 +59,17 @@ export const ZipDropzone: React.FC<ZipDropzoneProps> = ({ onFileSelected, isLoad
         onDragOver={handleDrag}
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
-        className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all ${
+        className={`relative overflow-hidden border-2 border-dashed rounded-2xl p-10 flex flex-col items-center justify-center cursor-pointer transition-all group ${
           dragActive
-            ? 'border-indigo-500 bg-indigo-950/20 shadow-glow'
-            : 'border-charcoal-700 bg-charcoal-850/50 hover:border-charcoal-600 hover:bg-charcoal-800/60'
+            ? 'border-cyan-400 bg-cyan-950/20 shadow-glow-cyan'
+            : 'border-charcoal-700 bg-charcoal-900/60 hover:border-indigo-500/50 hover:bg-charcoal-850/80'
         }`}
       >
+        {/* Subtle scanner beam on drag */}
+        {dragActive && (
+          <div className="absolute inset-x-0 h-16 bg-gradient-to-b from-cyan-400/20 to-transparent animate-scan pointer-events-none" />
+        )}
+
         <input
           ref={inputRef}
           type="file"
@@ -74,20 +79,23 @@ export const ZipDropzone: React.FC<ZipDropzoneProps> = ({ onFileSelected, isLoad
           disabled={isLoading}
         />
 
-        <div className="w-14 h-14 rounded-full bg-charcoal-800 border border-charcoal-700 flex items-center justify-center text-indigo-400 mb-4 group-hover:scale-110 transition-transform">
-          <Upload className="w-6 h-6" />
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-charcoal-800 to-charcoal-900 border border-charcoal-700 group-hover:border-indigo-500/50 flex items-center justify-center text-cyan-400 mb-4 group-hover:scale-105 transition-all shadow-glow">
+          <Upload className="w-7 h-7" />
         </div>
 
-        <p className="text-sm font-medium text-slate-200">
-          Drop your repository ZIP archive here, or <span className="text-indigo-400 underline">browse</span>
+        <p className="text-sm font-semibold text-slate-100">
+          Drop repository ZIP archive here, or{' '}
+          <span className="text-cyan-400 underline decoration-cyan-500/40 underline-offset-4">
+            browse filesystem
+          </span>
         </p>
-        <p className="text-xs text-slate-400 mt-1">
-          Supports multi-language codebases up to 50MB (safe path traversal validation included)
+        <p className="text-xs text-slate-400 mt-1.5 font-mono">
+          Max 50MB • Static AST parsing • Zip-Slip path sanitization enforced
         </p>
 
         {selectedFile && (
-          <div className="mt-4 flex items-center gap-2.5 px-3.5 py-2 bg-charcoal-800 rounded-lg border border-charcoal-700 text-xs text-slate-200 font-mono">
-            <FileArchive className="w-4 h-4 text-indigo-400" />
+          <div className="mt-5 flex items-center gap-2.5 px-4 py-2 bg-charcoal-800/90 rounded-xl border border-emerald-500/30 text-xs text-slate-200 font-mono shadow-subtle">
+            <FileArchive className="w-4 h-4 text-cyan-400" />
             <span>{selectedFile.name}</span>
             <span className="text-slate-400">
               ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
@@ -98,8 +106,8 @@ export const ZipDropzone: React.FC<ZipDropzoneProps> = ({ onFileSelected, isLoad
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 text-xs text-rose-400 bg-rose-950/40 border border-rose-900/60 px-3.5 py-2 rounded-lg">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+        <div className="flex items-center gap-2 text-xs text-rose-300 bg-rose-950/50 border border-rose-500/30 px-4 py-2.5 rounded-xl font-mono">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400" />
           <span>{error}</span>
         </div>
       )}
